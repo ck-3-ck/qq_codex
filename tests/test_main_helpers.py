@@ -199,10 +199,11 @@ class MainHelperTests(unittest.TestCase):
             openid="openid",
             message_id="message",
             created_at=datetime(2026, 5, 12, 10, 0, 0),
+            conversation_title="工程干活",
             can_approve_always=True,
         )
         message = format_ui_approval_message(record)
-        self.assertIn("Codex UI 审批：工程git", message)
+        self.assertIn("Codex UI 审批：工程干活", message)
         self.assertIn("需要读取 G 盘 rerun2 输出目录", message)
         self.assertIn("/approve ui-test", message)
         self.assertIn("/approve-always ui-test", message)
@@ -220,6 +221,7 @@ class MainHelperTests(unittest.TestCase):
                 "signature": "sig-window-1",
                 "prompt": "cmd.exe /c echo 1",
                 "window_handle": 111,
+                "conversation_title": "对话一",
                 "can_approve_always": True,
             },
             "openid",
@@ -240,6 +242,7 @@ class MainHelperTests(unittest.TestCase):
 
         self.assertEqual(len(approvals), 2)
         self.assertNotEqual(first.approval_id, second.approval_id)
+        self.assertEqual(first.conversation_title, "对话一")
         self.assertEqual(first.window_handle, 111)
         self.assertEqual(second.window_handle, 222)
 

@@ -93,6 +93,97 @@ function Is-ChoiceNumberName([string]$Name, [string]$Number) {
     return $Name -match ("^" + [regex]::Escape($Number) + "[\." + [regex]::Escape($IDEOGRAPHIC_DOT) + "]")
 }
 
+function Clean-ConversationTitle([string]$Name) {
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return ""
+    }
+    $waitingApproval = -join @([char]0x7B49, [char]0x5F85, [char]0x6279, [char]0x51C6)
+    $ellipsisChar = [string][char]0x2026
+    $title = ($Name -replace "\s+", " ").Trim()
+    $title = $title.Replace($waitingApproval, "")
+    $title = $title -replace "\s*\d+\s*\p{IsCJKUnifiedIdeographs}{1,2}$", ""
+    $title = $title.Trim()
+    if ($title.Length -gt 60) {
+        $ellipsis = $title.IndexOf($ellipsisChar)
+        if ($ellipsis -gt 4) {
+            $title = $title.Substring(0, $ellipsis + 1)
+        } else {
+            $title = $title.Substring(0, 60)
+        }
+    }
+    return $title.Trim()
+}
+
+function Is-ConversationTitleCandidate([string]$Name) {
+    $title = Clean-ConversationTitle $Name
+    if ([string]::IsNullOrWhiteSpace($title) -or $title.Length -lt 2) {
+        return $false
+    }
+    $englishPaper = -join @([char]0x82F1, [char]0x8BED, [char]0x8BBA, [char]0x6587)
+    $askAllow = -join @([char]0x662F, [char]0x5426, [char]0x5141, [char]0x8BB8)
+    if ($title -eq "Codex" -or $title -eq $englishPaper) {
+        return $false
+    }
+    if ($title.Contains($askAllow)) {
+        return $false
+    }
+    if ($title -match "Copy-Item|New-Item|Remove-Item|Get-ChildItem|powershell|cmd\.exe|git |npm |curl|python|\.pptx|\.docx|[A-Z]:\\") {
+        return $false
+    }
+    return $true
+}
+function Get-ConversationTitle($window, $scope) {
+    $scopeRect = $scope.Current.BoundingRectangle
+    $items = Get-VisibleElements $window
+
+    $mainCandidates = @()
+    foreach ($item in $items) {
+        if ($item.Type -ne "ControlType.Text" -and $item.Type -ne "ControlType.ListItem") {
+            continue
+        }
+        if (-not (Is-ConversationTitleCandidate $item.Name)) {
+            continue
+        }
+        $rect = $item.Rect
+        $sameColumn = ($rect.Right -gt ($scopeRect.Left - 80)) -and ($rect.Left -lt ($scopeRect.Right + 80))
+        $aboveApproval = $rect.Top -lt $scopeRect.Top
+        if ($sameColumn -and $aboveApproval) {
+            $mainCandidates += [PSCustomObject]@{
+                Name = (Clean-ConversationTitle $item.Name)
+                Bottom = $rect.Bottom
+            }
+        }
+    }
+    if ($mainCandidates.Count -gt 0) {
+        return ($mainCandidates | Sort-Object Bottom -Descending | Select-Object -First 1).Name
+    }
+
+    $waitingCandidates = @()
+    foreach ($item in $items) {
+        if ($item.Type -ne "ControlType.ListItem" -and $item.Type -ne "ControlType.Button") {
+            continue
+        }
+        if ($item.Name -notlike "*等待批准*") {
+            continue
+        }
+        $title = Clean-ConversationTitle $item.Name
+        if (Is-ConversationTitleCandidate $title) {
+            $waitingCandidates += [PSCustomObject]@{
+                Name = $title
+                Top = $item.Rect.Top
+                Length = $title.Length
+            }
+        }
+    }
+    if ($waitingCandidates.Count -eq 1) {
+        return $waitingCandidates[0].Name
+    }
+    if ($waitingCandidates.Count -gt 1) {
+        return ($waitingCandidates | Sort-Object -Property @{ Expression = "Length"; Descending = $true }, @{ Expression = "Top"; Ascending = $true } | Select-Object -First 1).Name
+    }
+    return ""
+}
+
 function Select-ChoiceElement($items, [string]$Action) {
     if ($Action -eq "approve") {
         $matches = @($items | Where-Object { Is-YesName $_.Name })
@@ -236,6 +327,7 @@ function Get-ApprovalDetailsForScope($window, $scope, [bool]$IncludeItems) {
         signature = $signature
         window_handle = $handle
         window_name = $window.Current.Name
+        conversation_title = (Get-ConversationTitle $window $scope)
         prompt = $prompt
         can_approve_always = $hasRemember
     }

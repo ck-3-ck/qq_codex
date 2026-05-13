@@ -26,6 +26,7 @@ class UIApprovalRecord:
     created_at: datetime
     window_handle: int = 0
     window_name: str = ""
+    conversation_title: str = ""
     can_approve_always: bool = False
     resolved: bool = False
 
@@ -90,7 +91,7 @@ def run_script(mode: str, signature: str = "") -> dict:
 
 
 def format_ui_approval_message(record: UIApprovalRecord) -> str:
-    title = clean_conversation_title(record.prompt)
+    title = record.conversation_title.strip() or clean_conversation_title(record.prompt)
     prompt = clean_approval_prompt(record.prompt)
     if len(prompt) > 800:
         prompt = prompt[:800] + "\n..."

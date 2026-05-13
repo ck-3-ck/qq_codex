@@ -590,6 +590,7 @@ def record_ui_approval(
             record.prompt = str(data.get("prompt") or record.prompt)
             record.window_handle = int(data.get("window_handle") or record.window_handle or 0)
             record.window_name = str(data.get("window_name") or record.window_name)
+            record.conversation_title = str(data.get("conversation_title") or record.conversation_title)
             record.can_approve_always = bool(data.get("can_approve_always"))
             return record
     approval_id = "ui-" + new_task_id()
@@ -602,6 +603,7 @@ def record_ui_approval(
         created_at=datetime.now(),
         window_handle=int(data.get("window_handle") or 0),
         window_name=str(data.get("window_name") or ""),
+        conversation_title=str(data.get("conversation_title") or ""),
         can_approve_always=bool(data.get("can_approve_always")),
     )
     ui_approvals[approval_id] = record
