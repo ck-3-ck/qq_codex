@@ -28,6 +28,7 @@ class UIApprovalRecord:
     window_name: str = ""
     conversation_title: str = ""
     can_approve_always: bool = False
+    choice_index: int = 0
     resolved: bool = False
 
 
@@ -90,20 +91,22 @@ def run_script(mode: str, signature: str = "") -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def format_ui_approval_message(record: UIApprovalRecord) -> str:
+def format_ui_approval_message(record: UIApprovalRecord, numbered: bool = False) -> str:
     title = record.conversation_title.strip() or clean_conversation_title(record.prompt)
     prompt = clean_approval_prompt(record.prompt)
     if len(prompt) > 800:
         prompt = prompt[:800] + "\n..."
+    index = record.choice_index if numbered and record.choice_index > 0 else 0
+    title_suffix = f" #{index}" if index else ""
+    choice_suffix = str(index) if index else ""
     lines = [
-        f"Codex UI 审批：{title}",
+        f"Codex UI 审批：{title}{title_suffix}",
         "",
         prompt,
         "",
-        "可复制：",
-        f"/approve {record.approval_id}",
-        f"/approve-always {record.approval_id}",
-        f"/cancel {record.approval_id}",
+        f"A{choice_suffix} = 允许本次",
+        f"B{choice_suffix} = 允许本次，并记住同类命令",
+        f"C{choice_suffix} = 拒绝/跳过",
     ]
     return "\n".join(lines)
 

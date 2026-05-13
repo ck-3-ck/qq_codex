@@ -39,6 +39,18 @@ class CommandParserTests(unittest.TestCase):
         self.assertEqual(command.name, "approve_always")
         self.assertEqual(command.args["task_id"], "ui-123")
 
+    def test_ui_choice_single(self):
+        command = parse_message("A")
+        self.assertEqual(command.name, "ui_choice")
+        self.assertEqual(command.args["choice"], "A")
+        self.assertEqual(command.args["index"], "")
+
+    def test_ui_choice_numbered(self):
+        command = parse_message("b12")
+        self.assertEqual(command.name, "ui_choice")
+        self.assertEqual(command.args["choice"], "B")
+        self.assertEqual(command.args["index"], "12")
+
     def test_unknown_command(self):
         with self.assertRaises(ParseError):
             parse_message("/unknown")

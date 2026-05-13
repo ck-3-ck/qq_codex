@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -18,6 +19,13 @@ def parse_message(text: str) -> Command | None:
     raw = text.strip()
     if not raw:
         return None
+    choice = re.fullmatch(r"([ABCabc])(\d*)", raw)
+    if choice:
+        return Command(
+            "ui_choice",
+            {"choice": choice.group(1).upper(), "index": choice.group(2)},
+            raw,
+        )
     if raw in {"/help", "help"}:
         return Command("help", {}, raw)
     if not raw.startswith("/"):
@@ -103,5 +111,7 @@ def help_text() -> str:
             "/approve-always ui",
             "/cancel <task_id>",
             "/cancel ui",
+            "A/B/C: answer the only visible Codex UI approval",
+            "A1/B1/C1: answer a numbered Codex UI approval",
         ]
     )

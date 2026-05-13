@@ -46,6 +46,7 @@ AUDIT_LOG = ROOT / "logs" / "audit.log"
 TASKS_FILE = ROOT / "logs" / "tasks.json"
 HIDDEN_SESSIONS_FILE = ROOT / "config" / "hidden_sessions.json"
 UI_CURRENT_REFS = {"ui", "ui-current", "ui-latest"}
+UI_CHOICE_ACTIONS = {"A": "approve", "B": "approve_always", "C": "cancel"}
 
 
 class SessionResolveError(ValueError):
@@ -294,6 +295,14 @@ async def handle_c2c_command(
         return "Send /help for available commands."
     if command.name == "help":
         return help_text()
+    if command.name == "ui_choice":
+        return handle_ui_approval_choice(
+            command.args["choice"],
+            command.args["index"],
+            openid,
+            message_id,
+            ui_approvals,
+        )
     if command.name == "codex_list":
         return build_session_listing(sessions, include_all=command.args.get("mode") == "all")
     if command.name == "codex_hide":
@@ -558,10 +567,11 @@ async def watch_ui_approvals(
                 send_attempts[signature] = now
                 audit(f"ui approval detected approval_id={record.approval_id} signature={signature[:12]}")
                 try:
+                    active_records = active_ui_approval_records(openid, ui_approvals)
                     await asyncio.to_thread(
                         client.send_c2c_message,
                         openid,
-                        format_ui_approval_message(record),
+                        format_ui_approval_message(record, numbered=len(active_records) > 1),
                         record.message_id or None,
                         900 + len(ui_approvals),
                     )
@@ -592,6 +602,7 @@ def record_ui_approval(
             record.window_name = str(data.get("window_name") or record.window_name)
             record.conversation_title = str(data.get("conversation_title") or record.conversation_title)
             record.can_approve_always = bool(data.get("can_approve_always"))
+            ensure_ui_choice_index(record, ui_approvals)
             return record
     approval_id = "ui-" + new_task_id()
     record = UIApprovalRecord(
@@ -607,7 +618,83 @@ def record_ui_approval(
         can_approve_always=bool(data.get("can_approve_always")),
     )
     ui_approvals[approval_id] = record
+    ensure_ui_choice_index(record, ui_approvals)
     return record
+
+
+def ensure_ui_choice_index(record: UIApprovalRecord, ui_approvals: dict[str, UIApprovalRecord]) -> None:
+    if record.choice_index > 0:
+        return
+    used = {
+        other.choice_index
+        for other in ui_approvals.values()
+        if other.approval_id != record.approval_id
+        and other.openid == record.openid
+        and not other.resolved
+        and other.choice_index > 0
+    }
+    index = 1
+    while index in used:
+        index += 1
+    record.choice_index = index
+
+
+def active_ui_approval_records(openid: str, ui_approvals: dict[str, UIApprovalRecord]) -> list[UIApprovalRecord]:
+    records = [
+        record
+        for record in ui_approvals.values()
+        if record.openid == openid and not record.resolved
+    ]
+    for record in records:
+        ensure_ui_choice_index(record, ui_approvals)
+    return sorted(records, key=lambda item: (item.choice_index or 999999, item.created_at, item.approval_id))
+
+
+def format_ui_approval_messages(records: list[UIApprovalRecord]) -> str:
+    numbered = len(records) > 1
+    return "\n\n".join(format_ui_approval_message(record, numbered=numbered) for record in records)
+
+
+def format_multiple_ui_choice_prompt(records: list[UIApprovalRecord]) -> str:
+    choices = " 或 ".join(f"A{record.choice_index}/B{record.choice_index}/C{record.choice_index}" for record in records)
+    return f"当前有多个待审批，请回复 {choices}。"
+
+
+def handle_ui_approval_choice(
+    choice: str,
+    index: str,
+    openid: str,
+    message_id: str,
+    ui_approvals: dict[str, UIApprovalRecord],
+) -> str:
+    if choice not in UI_CHOICE_ACTIONS:
+        return "Unknown approval choice."
+    try:
+        records = current_ui_approval_records(openid, message_id, ui_approvals)
+    except UIApprovalError as exc:
+        return f"UI approval check failed: {exc}"
+    records = [record for record in records if record.openid == openid and not record.resolved]
+    if not records:
+        return "No visible Codex UI approval request."
+    for record in records:
+        ensure_ui_choice_index(record, ui_approvals)
+
+    if index:
+        choice_index = int(index)
+        record = next((item for item in records if item.choice_index == choice_index), None)
+        if record is None:
+            return f"审批 #{choice_index} 已不存在或已过期，请发送 /status ui 查看当前待审批。"
+    else:
+        if len(records) > 1:
+            return format_multiple_ui_choice_prompt(records)
+        record = records[0]
+
+    action = UI_CHOICE_ACTIONS[choice]
+    if action == "approve":
+        return approve_ui_approval_command(record.approval_id, openid, message_id, ui_approvals) or ""
+    if action == "approve_always":
+        return approve_always_ui_approval_command(record.approval_id, openid, message_id, ui_approvals) or ""
+    return cancel_ui_approval_command(record.approval_id, openid, message_id, ui_approvals) or ""
 
 
 def current_ui_approval_record(
@@ -619,7 +706,7 @@ def current_ui_approval_record(
     if not records:
         return None
     if len(records) > 1:
-        raise UIApprovalError("Multiple visible Codex UI approvals. Use the specific ui-... id from /status ui.")
+        raise UIApprovalError(format_multiple_ui_choice_prompt(records))
     return records[0]
 
 
@@ -649,13 +736,16 @@ def status_ui_approval_command(
             return f"UI approval check failed: {exc}"
         if not records:
             return "No visible Codex UI approval request."
-        return "\n\n".join(format_ui_approval_message(record) for record in records)
+        return format_ui_approval_messages(records)
     record = ui_approvals.get(approval_id)
     if not record or record.openid != openid:
         return f"UI approval not found: {approval_id}"
     if record.resolved:
         return f"UI approval already resolved: {approval_id}"
-    return format_ui_approval_message(record)
+    return format_ui_approval_message(
+        record,
+        numbered=len(active_ui_approval_records(openid, ui_approvals)) > 1,
+    )
 
 
 def approve_ui_approval_command(

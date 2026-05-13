@@ -205,13 +205,33 @@ class MainHelperTests(unittest.TestCase):
         message = format_ui_approval_message(record)
         self.assertIn("Codex UI 审批：工程干活", message)
         self.assertIn("需要读取 G 盘 rerun2 输出目录", message)
-        self.assertIn("/approve ui-test", message)
-        self.assertIn("/approve-always ui-test", message)
-        self.assertIn("/cancel ui-test", message)
+        self.assertIn("A = 允许本次", message)
+        self.assertIn("B = 允许本次，并记住同类命令", message)
+        self.assertIn("C = 拒绝/跳过", message)
+        self.assertNotIn("/approve ui-test", message)
+        self.assertNotIn("可复制", message)
         self.assertNotIn("(window", message)
         self.assertNotIn("GitHub CLI", message)
         self.assertNotIn("含义：", message)
         self.assertNotIn("是，且对于以", message)
+
+    def test_ui_approval_message_uses_numbered_choices(self):
+        record = UIApprovalRecord(
+            approval_id="ui-test",
+            signature="sig",
+            prompt="需要运行命令。\npython -c \"print(1)\"",
+            openid="openid",
+            message_id="message",
+            created_at=datetime(2026, 5, 12, 10, 0, 0),
+            conversation_title="测试对话",
+            can_approve_always=True,
+            choice_index=2,
+        )
+        message = format_ui_approval_message(record, numbered=True)
+        self.assertIn("Codex UI 审批：测试对话 #2", message)
+        self.assertIn("A2 = 允许本次", message)
+        self.assertIn("B2 = 允许本次，并记住同类命令", message)
+        self.assertIn("C2 = 拒绝/跳过", message)
 
     def test_record_ui_approval_keeps_distinct_windows_separate(self):
         approvals: dict[str, UIApprovalRecord] = {}
@@ -243,8 +263,62 @@ class MainHelperTests(unittest.TestCase):
         self.assertEqual(len(approvals), 2)
         self.assertNotEqual(first.approval_id, second.approval_id)
         self.assertEqual(first.conversation_title, "对话一")
+        self.assertEqual(first.choice_index, 1)
+        self.assertEqual(second.choice_index, 2)
         self.assertEqual(first.window_handle, 111)
         self.assertEqual(second.window_handle, 222)
+
+    def test_format_multiple_ui_choice_prompt(self):
+        approvals: dict[str, UIApprovalRecord] = {}
+        first = main.record_ui_approval(
+            {"signature": "sig-1", "prompt": "cmd 1"},
+            "openid",
+            "message",
+            approvals,
+        )
+        second = main.record_ui_approval(
+            {"signature": "sig-2", "prompt": "cmd 2"},
+            "openid",
+            "message",
+            approvals,
+        )
+
+        message = main.format_multiple_ui_choice_prompt([first, second])
+
+        self.assertIn("A1/B1/C1", message)
+        self.assertIn("A2/B2/C2", message)
+
+    def test_ui_choice_requires_number_when_multiple_visible(self):
+        approvals: dict[str, UIApprovalRecord] = {}
+        first = main.record_ui_approval({"signature": "sig-1", "prompt": "cmd 1"}, "openid", "message", approvals)
+        second = main.record_ui_approval({"signature": "sig-2", "prompt": "cmd 2"}, "openid", "message", approvals)
+        original_current = main.current_ui_approval_records
+        main.current_ui_approval_records = lambda *args, **kwargs: [first, second]
+        try:
+            response = main.handle_ui_approval_choice("A", "", "openid", "message", approvals)
+        finally:
+            main.current_ui_approval_records = original_current
+
+        self.assertIn("A1/B1/C1", response)
+        self.assertIn("A2/B2/C2", response)
+
+    def test_numbered_ui_choice_approves_matching_record(self):
+        approvals: dict[str, UIApprovalRecord] = {}
+        first = main.record_ui_approval({"signature": "sig-1", "prompt": "cmd 1"}, "openid", "message", approvals)
+        second = main.record_ui_approval({"signature": "sig-2", "prompt": "cmd 2"}, "openid", "message", approvals)
+        original_current = main.current_ui_approval_records
+        original_approve = main.approve_ui_approval
+        main.current_ui_approval_records = lambda *args, **kwargs: [first, second]
+        main.approve_ui_approval = lambda signature: {"ok": True}
+        try:
+            response = main.handle_ui_approval_choice("A", "2", "openid", "message", approvals)
+        finally:
+            main.current_ui_approval_records = original_current
+            main.approve_ui_approval = original_approve
+
+        self.assertIn("Approved Codex UI request", response)
+        self.assertFalse(first.resolved)
+        self.assertTrue(second.resolved)
 
 
 if __name__ == "__main__":
