@@ -1,0 +1,12 @@
+{
+  "paper": {
+    "session_id": "replace-with-codex-session-id",
+    "cwd": "C:\\Users\\you\\Desktop\\paper",
+    "sandbox": "read-only"
+  },
+  "bridge": {
+    "session_id": "replace-with-codex-session-id",
+    "cwd": "E:\\qq_codex",
+    "sandbox": "read-only"
+  }
+}

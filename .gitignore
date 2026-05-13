@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.py[cod]
+logs/*
+!logs/.gitkeep
+config/*.json
+!config/*.example.json
+*.docx
+*.pptx
+*_preview.png
+numbers_*_render/

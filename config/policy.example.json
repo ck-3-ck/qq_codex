@@ -1,0 +1,16 @@
+{
+  "default_sandbox": "read-only",
+  "allowed_openids": [],
+  "blocked_terms": [
+    "删除",
+    "卸载",
+    "格式化",
+    "清空",
+    "rm -rf",
+    "Remove-Item -Recurse",
+    "git reset --hard",
+    "danger-full-access",
+    "dangerously-bypass-approvals-and-sandbox"
+  ],
+  "safety_prompt": "未经用户明确允许，不许改动代码文件。一切资料来源都必须真实有效，可以溯源，不可胡编乱造。不允许删除、卸载任何文件。本次任务默认只读。"
+}
