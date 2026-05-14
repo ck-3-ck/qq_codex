@@ -135,9 +135,40 @@ function Is-ConversationTitleCandidate([string]$Name) {
     }
     return $true
 }
+
+function Test-IsSelectedElement($element) {
+    try {
+        $pattern = $element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+        return [bool]$pattern.Current.IsSelected
+    } catch {
+        return $false
+    }
+}
+
 function Get-ConversationTitle($window, $scope) {
     $scopeRect = $scope.Current.BoundingRectangle
     $items = Get-VisibleElements $window
+
+    $selectedCandidates = @()
+    foreach ($item in $items) {
+        if ($item.Type -ne "ControlType.ListItem" -and $item.Type -ne "ControlType.TreeItem") {
+            continue
+        }
+        if (-not (Test-IsSelectedElement $item.Element)) {
+            continue
+        }
+        if (-not (Is-ConversationTitleCandidate $item.Name)) {
+            continue
+        }
+        $selectedCandidates += [PSCustomObject]@{
+            Name = (Clean-ConversationTitle $item.Name)
+            Top = $item.Rect.Top
+            Length = (Clean-ConversationTitle $item.Name).Length
+        }
+    }
+    if ($selectedCandidates.Count -gt 0) {
+        return ($selectedCandidates | Sort-Object -Property @{ Expression = "Length"; Descending = $true }, @{ Expression = "Top"; Ascending = $true } | Select-Object -First 1).Name
+    }
 
     $mainCandidates = @()
     foreach ($item in $items) {

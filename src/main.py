@@ -543,6 +543,7 @@ async def watch_ui_approvals(
             approvals = await asyncio.to_thread(detect_ui_approvals)
             active_signatures = {str(item.get("signature") or "") for item in approvals}
             active_signatures.discard("")
+            prune_stale_ui_approvals(ui_approvals, active_signatures)
             sent_signatures.intersection_update(active_signatures)
             send_attempts = {key: value for key, value in send_attempts.items() if key in active_signatures}
             if not approvals:
@@ -650,6 +651,15 @@ def active_ui_approval_records(openid: str, ui_approvals: dict[str, UIApprovalRe
     return sorted(records, key=lambda item: (item.choice_index or 999999, item.created_at, item.approval_id))
 
 
+def prune_stale_ui_approvals(ui_approvals: dict[str, UIApprovalRecord], active_signatures: set[str]) -> None:
+    for record in ui_approvals.values():
+        if record.resolved:
+            continue
+        if record.signature not in active_signatures:
+            record.resolved = True
+            audit(f"ui approval expired approval_id={record.approval_id} signature={record.signature[:12]}")
+
+
 def format_ui_approval_messages(records: list[UIApprovalRecord]) -> str:
     numbered = len(records) > 1
     return "\n\n".join(format_ui_approval_message(record, numbered=numbered) for record in records)
@@ -716,7 +726,11 @@ def current_ui_approval_records(
     ui_approvals: dict[str, UIApprovalRecord],
 ) -> list[UIApprovalRecord]:
     records: list[UIApprovalRecord] = []
-    for data in detect_ui_approvals():
+    approvals = detect_ui_approvals()
+    active_signatures = {str(item.get("signature") or "") for item in approvals}
+    active_signatures.discard("")
+    prune_stale_ui_approvals(ui_approvals, active_signatures)
+    for data in approvals:
         record = record_ui_approval(data, openid, message_id, ui_approvals)
         if record is not None:
             records.append(record)

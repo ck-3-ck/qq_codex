@@ -215,10 +215,30 @@ class MainHelperTests(unittest.TestCase):
         self.assertNotIn("含义：", message)
         self.assertNotIn("是，且对于以", message)
 
+    def test_ui_approval_message_uses_unknown_title_when_detection_fails(self):
+        record = UIApprovalRecord(
+            approval_id="ui-test",
+            signature="sig",
+            prompt="，需要用非沙箱权限启动这个长任务。\npython -c \"print(1)\"",
+            openid="openid",
+            message_id="message",
+            created_at=datetime(2026, 5, 14, 16, 0, 0),
+            conversation_title="",
+            can_approve_always=True,
+        )
+        message = format_ui_approval_message(record)
+        self.assertTrue(message.startswith("Codex UI 审批：未知对话\n"))
+        self.assertIn("，需要用非沙箱权限启动这个长任务。", message)
+
     def test_ui_approval_script_forces_utf8_stdout(self):
         script = Path("src/ui_approval.ps1").read_text(encoding="utf-8")
         self.assertIn("[Console]::OutputEncoding = $utf8NoBom", script)
         self.assertIn("$OutputEncoding = $utf8NoBom", script)
+
+    def test_ui_approval_script_prefers_selected_conversation_title(self):
+        script = Path("src/ui_approval.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Test-IsSelectedElement", script)
+        self.assertIn("SelectionItemPattern", script)
 
     def test_ui_approval_message_uses_numbered_choices(self):
         record = UIApprovalRecord(
@@ -292,6 +312,20 @@ class MainHelperTests(unittest.TestCase):
 
         self.assertIn("A1/B1/C1", message)
         self.assertIn("A2/B2/C2", message)
+
+    def test_prune_stale_ui_approvals_ignores_desktop_handled_requests(self):
+        approvals: dict[str, UIApprovalRecord] = {}
+        stale = main.record_ui_approval({"signature": "sig-stale", "prompt": "cmd 1"}, "openid", "message", approvals)
+        active = main.record_ui_approval({"signature": "sig-active", "prompt": "cmd 2"}, "openid", "message", approvals)
+
+        main.prune_stale_ui_approvals(approvals, {"sig-active"})
+        records = main.active_ui_approval_records("openid", approvals)
+
+        self.assertTrue(stale.resolved)
+        self.assertFalse(active.resolved)
+        self.assertEqual(records, [active])
+        self.assertNotIn("#", format_ui_approval_message(active, numbered=len(records) > 1).splitlines()[0])
+        self.assertIn("A = 允许本次", format_ui_approval_message(active, numbered=len(records) > 1))
 
     def test_ui_choice_requires_number_when_multiple_visible(self):
         approvals: dict[str, UIApprovalRecord] = {}

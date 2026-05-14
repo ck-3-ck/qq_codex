@@ -92,8 +92,9 @@ def run_script(mode: str, signature: str = "") -> dict:
 
 
 def format_ui_approval_message(record: UIApprovalRecord, numbered: bool = False) -> str:
-    title = record.conversation_title.strip() or clean_conversation_title(record.prompt)
-    prompt = clean_approval_prompt(record.prompt)
+    has_detected_title = bool(record.conversation_title.strip())
+    title = clean_display_title(record.conversation_title)
+    prompt = clean_approval_prompt(record.prompt, remove_heuristic_title=has_detected_title)
     if len(prompt) > 800:
         prompt = prompt[:800] + "\n..."
     index = record.choice_index if numbered and record.choice_index > 0 else 0
@@ -109,6 +110,11 @@ def format_ui_approval_message(record: UIApprovalRecord, numbered: bool = False)
         f"C{choice_suffix} = 拒绝/跳过",
     ]
     return "\n".join(lines)
+
+
+def clean_display_title(title: str) -> str:
+    title = title.strip()
+    return title if title else "未知对话"
 
 
 CONVERSATION_SUFFIX_RE = re.compile(r"(?:\s*\d+\s*(?:秒|分钟|小时|天|周|月)|\s*等待批准)+$")
@@ -147,14 +153,14 @@ def clean_conversation_title(prompt: str) -> str:
     return "Codex"
 
 
-def clean_approval_prompt(prompt: str) -> str:
-    title = clean_conversation_title(prompt)
+def clean_approval_prompt(prompt: str, remove_heuristic_title: bool = True) -> str:
+    title = clean_conversation_title(prompt) if remove_heuristic_title else ""
     cleaned: list[str] = []
     for line in normalized_prompt_lines(prompt):
         if is_noise_line(line):
             continue
         candidate = CONVERSATION_SUFFIX_RE.sub("", line).strip()
-        if candidate == title:
+        if title and candidate == title:
             continue
         line = strip_trailing_options(line)
         if not line:
