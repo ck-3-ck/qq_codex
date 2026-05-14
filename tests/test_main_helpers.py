@@ -215,6 +215,11 @@ class MainHelperTests(unittest.TestCase):
         self.assertNotIn("含义：", message)
         self.assertNotIn("是，且对于以", message)
 
+    def test_ui_approval_script_forces_utf8_stdout(self):
+        script = Path("src/ui_approval.ps1").read_text(encoding="utf-8")
+        self.assertIn("[Console]::OutputEncoding = $utf8NoBom", script)
+        self.assertIn("$OutputEncoding = $utf8NoBom", script)
+
     def test_ui_approval_message_uses_numbered_choices(self):
         record = UIApprovalRecord(
             approval_id="ui-test",
